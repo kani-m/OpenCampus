@@ -752,8 +752,8 @@ void DrawCone(void) {
   float theta = -90.0;
   glTranslated(0.0, 0.7, 0.0);
   glRotated(theta, 0.0, 0.0, 1.0); // コーンを回転させる
-  // コーンを描画する
-  
+
+  // コーンを描画する  
   glVertexPointer(3, GL_FLOAT, 0, solidConeVertex.data());
   glNormalPointer(   GL_FLOAT, 0, solidConeNormal.data());
   glEnableClientState(GL_VERTEX_ARRAY);
