@@ -1,3 +1,16 @@
+/*
+  sample1
+  内容 : CG(コンピュータグラフィックス)の入門プログラム
+  キーボード操作 :
+  q - 終了
+  a - 一時停止
+  f - 霧のモード切り替え
+  t - 物体の透明モード切り替え
+*/
+
+/* 
+  関数(コンピュータへの命令を機能ごとにまとめたもの)を呼ぶための準備 
+*/
 #include <cmath>
 #include <ctime>
 #include <cstdlib>
@@ -7,49 +20,32 @@
 #include <functional>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#define GLM_FORCE_SWIZZLE
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/string_cast.hpp>
-
-void rk4(float*, glm::vec3*, glm::vec3*, glm::vec3*, glm::vec3*);
-GLFWwindow* userInit(void);
-void idle(void);
-void display(GLFWwindow*);
-static void keyboard (GLFWwindow* const, int, int, int, int);
-static void resize (GLFWwindow* const, int, int);
-int shouldClose (GLFWwindow*);
-void swapBuffers (GLFWwindow*);
-void DrawYoyo(GLfloat*, GLfloat*);
-void DrawString(GLfloat*);
+#include "sample3.h"
 
 /*
   変数(プログラムの設定を保存しておくためのもの)の宣言
 */
-int BAR;   // 棒
-int SWING; // ブランコ本体
+int    g_nAnim         = GL_FALSE; // 一時停止しているかどうか
+int    g_nYoyoMode     = 0;        // ヨーヨーの状態
+int    g_nFramerate    = 30;       // ヨーヨーの動きの滑らかさ
+double viewpoint_angle = 0.0;      // ヨーヨーを見るときの角度
 
-int    g_nAnim = GL_TRUE; // 一時停止しているかどうか
-int    key_c   = 1;       // ブランコの状態
-int    key_f   = 30;      // ブランコの動きの滑らかさ
+const float   aGra = 980.0f; // 重力加速度 [cm/s^2]
+const float  mYoyo = 100.0f; // ヨーヨーの質量 [g]
+const float rInner =   5.0f; // ヨーヨーの内側の半径(紐を巻きつける部分) [cm]
+const float rOuter =  25.0f; // ヨーヨーの外側の半径(実際に見える部分) [cm]
+const float   lStr = 400.0f; // ヨーヨーの紐の長さ [cm]
+// ヨーヨーを上に引く力 [g cm/s^2]
+glm::vec3    fPull = glm::vec3({-10.0f*mYoyo*aGra, 0.0f, 0.0f});
 
-double viewpoint_angle = 40.0; // ブランコを見るときの角度
-
-glm::vec3     x = {  0.0f, 0.0f, 0.0f}; // Position of yoyo
-glm::vec3     v = {  0.0f, 0.0f, 0.0f}; // Velocity of yoyo
-glm::vec3 theta = {  0.0f, 0.0f, 0.0f}; // Rotation angle    of yoyo
-glm::vec3 omega = {  0.0f, 0.0f, 0.0f}; // Angular  velocity of yoyo
-float         t = 0.0f;             // Time
-float        dt = pow(2.0f, -5.0f); // Time step
-
-const float rInner =   5.0f; // Radius of inner cylinder of yoyo
-const float rOuter =  25.0f; // Radius of outer cylinder of yoyo
-const float      L = 400.0f; // Length of string
-glm::vec3     fExt = glm::vec3(0.0f); // External force
-
-static bool isDown  = true; // Up   down  flag, up   - false, down  - true
-static bool isRight = true; // Left right flag, left - false, right - true
+const GLfloat g_aStringColor[3] = {1.00, 0.00, 1.00}; // 紐の色
+const GLfloat g_aYoyoColor[3]   = {0.00, 1.00, 0.00}; // ヨーヨーの色
 
 int main() {
   // プログラムを開始するための初期設定をする
@@ -65,7 +61,7 @@ int main() {
 
   // 動作を開始する
   while (shouldClose(window) == GL_FALSE) {
-    if (g_nAnim) {
+    if (!g_nAnim) {
       idle();
     }
     display(window);
@@ -117,7 +113,7 @@ GLFWwindow* userInit(void) {
   // 背景の色を設定する
   glClearColor(0.9, 0.9, 0.9, 1.0);
 
-  // ブランコの描画のための設定をする
+  // ヨーヨーの描画のための設定をする
   glShadeModel(GL_FLAT);
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   glEnable(GL_CULL_FACE);
@@ -127,46 +123,68 @@ GLFWwindow* userInit(void) {
 }
 
 /*
+  計算用変数の宣言
+ */
+bool isDown  = true;  // Up   down  flag, up   - false, down  - true
+bool isRight = true;  // Left right flag, left - false, right - true
+
+glm::vec3   pos = {0.0f, -rInner, 0.0f}; // Position of yoyo
+glm::vec3   vel = {0.0f,    0.0f, 0.0f}; // Velocity of yoyo
+glm::vec3 theta = {0.0f,    0.0f, 0.0f}; // Rotation angle    of yoyo
+glm::vec3 omega = {0.0f,    0.0f, 0.0f}; // Angular  velocity of yoyo
+float         t =  0.0f;                 // Time
+float        dt =  pow(2.0f, -5.0f);     // Time step
+glm::vec3  fExt = glm::vec3(0.0f);       // Force to pull
+
+/*
   一定時間ごとに動作する関数
 */
 void idle(void) { 
   static clock_t currentTime;        // 現在の時間
   static clock_t previousTime = 0.0; // 前の時間
-  const float g = 9.8f;
-  static bool flags[2] = {true, true};
   
-  if(key_c == 0){
-    const float T = 10.0f/(2.0f*M_PI);
-    // 一定の量ずつ角度が増える
-    x.x += v.x*dt;
-    v.x += g*dt;
-    theta.z += omega.z*dt;
-    omega.z += g*dt*glm::sign(sin(t/T));
-    t   += dt;
+  if (g_nYoyoMode == 0) {
+    const float T      = 20.0f;       // ヨーヨーの周期
+    const float dl     = 4.0f*lStr/T; // ヨーヨーの位置の刻み幅
+    const float dtheta = 8.0f*M_PI/T; // ヨーヨーの角度の刻み幅
+
+    // 運動のフラグの設定
+    if (t < T/4.0f) {
+      isDown  = true;
+      isRight = true;
+    } else if (t < T/2.0f) {
+      isDown  = false;
+      isRight = false;
+    } else if (t < T/4.0f*3.0f) {
+      isDown  = true;
+      isRight = false;
+    } else if (t < T) {
+      isDown  = false;
+      isRight = true;
+    }
     
-    flags[0] = flags[1];
-    flags[1] = sin(t/T) > 0;
-    if (flags[0] && !flags[1]) {
-      v.x = -v.x;
-      isDown = !isDown;
+    // 一定の量ずつ運動する
+    pos.x   += isDown  ? dl*dt   : -dl*dt;
+    pos.y    = isRight ? -rInner : rInner;
+    vel.x    = isDown  ? dl      : -dl;
+    theta.z += !(isDown^isRight) ? dtheta*dt : -dtheta*dt;
+    omega.z  = !(isDown^isRight) ? dtheta    : -dtheta;
+    t       += dt;
+
+    if (t > T) {
+      t       = 0;
+      pos.x   = 0.0f;
+      theta.z = 0.0f;
     }
-    if (isDown && x.x > 100.0f) {
-      x.x = 100.0f;
-    } else if (!isDown && x.x < 0.0f) {
-      x.x = 0.0f;
-    }
-  }else if(key_c == 1){
-    // 物理法則に従って角度が増える
-    //const clock_t start = clock();
-    rk4(&t, &x, &v, &theta, &omega);
-    //const clock_t end = clock();
-    //std::cout << (double)(end - start)/CLOCKS_PER_SEC << std::endl;
+  } else if (g_nYoyoMode == 1 || g_nYoyoMode == 2) {
+    // 物理法則に従って運動する
+    rk4(t, pos, vel, theta, omega);
   }
 
   // 決められた時間だけ待つ
-  do{
+  do {
     currentTime = clock();
-  }while((double)(currentTime - previousTime)/CLOCKS_PER_SEC < 1/(double)key_f);
+  } while ((double)(currentTime - previousTime)/CLOCKS_PER_SEC < 1/(double)g_nFramerate);
   previousTime = currentTime;
 }
 
@@ -174,26 +192,25 @@ void idle(void) {
   物体を表示するための関数
 */
 void display(GLFWwindow* window) {
-  GLfloat g_aStringColor[3]   = {1.00, 0.00, 1.00}; // 紐の色
-  GLfloat g_aYoyoColorInner[3] = {0.00, 1.00, 0.00}; // 座席の側面の色
-  GLfloat g_aYoyoColorOuter[3]  = {0.00, 0.00, 1.00}; // 座席の上下面の色
-
+  const GLfloat g_aYoyoColorInner[3] = {0.00, 1.00, 0.00}; // ヨーヨーの内側の色
+  
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   glPushMatrix();
+  // 視点の角度に合わせて回転させる
   glRotated(viewpoint_angle, 1.0, 0.0, 0.0);
   
   glPushMatrix();
   // 全体をずらす
-  glTranslated(-L/2.0f, 0.0, 0.0);
+  glTranslated(-lStr/2.0f, 0.0, 0.0);
   
-  // 棒を表示する
-  DrawString(g_aStringColor);
+  // 紐を表示する
+  drawString(g_aStringColor);
 
-  // ブランコ本体を表示する
-  glTranslated(x.x, x.y, x.z);
+  // ヨーヨー本体を表示する
+  glTranslated(pos.x, pos.y, pos.z);
   glRotated(glm::degrees(theta.z), 0.0, 0.0, 1.0);
-  DrawYoyo(g_aYoyoColorInner, g_aYoyoColorOuter);
+  drawYoyo(g_aYoyoColorInner, g_aYoyoColor);
 
   glPopMatrix();
   glPopMatrix();
@@ -220,26 +237,36 @@ static void keyboard (GLFWwindow* const window, int key, int scancode, int actio
     break;
   case GLFW_KEY_C :
     if (action == GLFW_PRESS) {
-      // ブランコの状態を変える
-      key_c = (key_c == 0) ? 1 : 0;
+      // ヨーヨーの状態を変える
+      g_nYoyoMode = (g_nYoyoMode + 1) % 3;
+
+      // 変数を初期化する
+      isDown  = true;  // Up   down  flag, up   - false, down  - true
+      isRight = true;  // Left right flag, left - false, right - true
+      
+      pos   = {0.0f, -rInner, 0.0f}; // Position of yoyo
+      vel   = {0.0f,    0.0f, 0.0f}; // Velocity of yoyo
+      theta = {0.0f,    0.0f, 0.0f}; // Rotation angle    of yoyo
+      omega = {0.0f,    0.0f, 0.0f}; // Angular  velocity of yoyo
+      t     =  0.0f;                 // Time
     }
     break;  
   case GLFW_KEY_F :
     if (action == GLFW_PRESS) {
       if (mods == GLFW_MOD_SHIFT) {
-	// ブランコの動きの滑らかさを上げる
-	key_f += 5;
-	if(key_f > 60){
-	  key_f = 30;
+	// ヨーヨーの動きの滑らかさを上げる
+	g_nFramerate += 5;
+	if(g_nFramerate > 60){
+	  g_nFramerate = 60;
 	}
       } else {
-	// ブランコの動きの滑らかさを下げる
-	key_f -= 5;
-	if(key_f <= 0){
-	  key_f = 30;
+	// ヨーヨーの動きの滑らかさを下げる
+	g_nFramerate -= 5;
+	if(g_nFramerate < 5){
+	  g_nFramerate = 5;
 	}
       }
-      dt = 1/(float)key_f;
+      dt = 1/(float)g_nFramerate;
     }
     break;
   default:
@@ -251,21 +278,16 @@ static void keyboard (GLFWwindow* const window, int key, int scancode, int actio
   ウィンドウの大きさが変更されたときのための関数
 */
 static void resize (GLFWwindow* const window, int width, int height) {
-  /*
-  double viewpoint_x = -150.0*sin(M_PI/180.0*viewpoint_angle); // 視点のx座標
-  double viewpoint_y =    0.0;                                 // 視点のy座標
-  double viewpoint_z =  150.0*cos(M_PI/180.0*viewpoint_angle); // 視点のz座標
-  */
-  double viewpoint_x =   0.0f;
-  double viewpoint_y =   0.0f;
-  double viewpoint_z = L*1.5f;
+  double viewpoint_x =      0.0f; // 視点のx座標
+  double viewpoint_y =      0.0f; // 視点のy座標
+  double viewpoint_z = lStr*1.5f; // 視点のz座標
   
   // ウィンドウの大きさに合わせて物体の大きさや視点も変更する
   glViewport(0, 0, (GLsizei)width, (GLsizei)height);
   glMatrixMode(GL_PROJECTION);
   glm::mat4 Projection = glm::perspective(glm::radians(40.0),
 					  (GLdouble)width/(GLdouble)height,
-					  5.0, (GLdouble)L*2.0);
+					  5.0, (GLdouble)lStr*2.0);
   glLoadMatrixf(glm::value_ptr(Projection));
   
   glMatrixMode(GL_MODELVIEW);
@@ -288,162 +310,29 @@ void swapBuffers (GLFWwindow* window) {
   // Get some events
   glfwPollEvents();
 
+  // 矢印キーを押すと，10度ずつ視点が回転する
   if (glfwGetKey(window, GLFW_KEY_LEFT) != GLFW_RELEASE) {
     viewpoint_angle -= 10.0;
   } else if (glfwGetKey(window, GLFW_KEY_RIGHT) != GLFW_RELEASE) {
     viewpoint_angle += 10.0;
   }
-  
-  const float  m = 100.0f; // Mass
-  const float  g = 980.0f; // Gravitational acceleration
-  fExt = static_cast<float>(glfwGetKey(window, GLFW_KEY_SPACE)) * (x.x > 0) * glm::vec3({-10.0f*m*g, 0.0f, 0.0f});
+
+  // ヨーヨーを上に持ち上げる力を設定する(空気抵抗ありの状態のみ有効)
+  fExt = static_cast<float>(glfwGetKey(window, GLFW_KEY_SPACE)) * (pos.x > 0) * (g_nYoyoMode == 2) * fPull;
 }
-
-/*
-  円柱クラス
- */
-class Cylinder {
-  GLfloat r; // 底面の半径
-  GLfloat h; // 円柱の高さ
-  GLuint  N; // 分割数
-  
-  std::vector<GLuint>    index;  // 描画される各面の頂点番号
-  std::vector<glm::vec3> vertex; // 描画される各面の頂点座標
-  std::vector<glm::vec3> normal; // 描画される各面の頂点法線
-
-public:
-  Cylinder (GLfloat r, GLfloat h, GLuint N = 16)
-    : r(r), h(h), N(N) {
-    createMesh();
-  }
-
-  const std::vector<GLuint>& getIndex (void) {
-    return index;
-  }
-  const std::vector<glm::vec3>& getVertex (void) {
-    return vertex;
-  }
-  const std::vector<glm::vec3>& getNormal (void) {
-    return normal;
-  }
-  
-  void createMesh (void) {
-    index.clear();
-    vertex.clear();
-    normal.clear();
-
-    std::vector<glm::vec3> vertexCoord; // 頂点座標
-    vertexCoord.emplace_back((glm::vec3){0.0f,  h/2.0f, 0.0f}); // 円柱の頂面の中心
-    vertexCoord.emplace_back((glm::vec3){0.0f, -h/2.0f, 0.0f}); // 円柱の底面の中心
-
-    // 円柱の頂面
-    for (int i = 0; i < N; ++i) {
-      // 円柱の頂面の円周をN分割した点
-      GLfloat t = 2.0f * M_PI * static_cast<GLfloat>(i) /  static_cast<GLfloat>(N);
-      GLfloat x = r*sin(t);
-      GLfloat y = h/2.0f;
-      GLfloat z = r*cos(t);
-
-      glm::vec3 v = {x, y, z};
-      vertexCoord.emplace_back(v);
-    }
-
-    // 円柱の底面
-    for (int i = 0; i < N; ++i) {
-      // 円柱の底面の円周をN分割した点
-      GLfloat t = 2.0f * M_PI * static_cast<GLfloat>(i) /  static_cast<GLfloat>(N);
-      GLfloat x =  r*sin(t);
-      GLfloat y = -h/2.0f;
-      GLfloat z =  r*cos(t);
-
-      glm::vec3 v = {x, y, z};
-      vertexCoord.emplace_back(v);
-    }
-    
-    // 円柱の頂面を近似するN角形の各面における頂点座標，頂点法線と頂点番号を計算する
-    for (int i = 0; i < N; ++i) {
-      vertex.emplace_back(vertexCoord[          0]);
-      vertex.emplace_back(vertexCoord[ i   %N + 2]);
-      vertex.emplace_back(vertexCoord[(i+1)%N + 2]);
-
-      normal.emplace_back((glm::vec3){0.0f,  1.0f, 0.0f});
-      normal.emplace_back((glm::vec3){0.0f,  1.0f, 0.0f});
-      normal.emplace_back((glm::vec3){0.0f,  1.0f, 0.0f});
-      
-      index.emplace_back(3*(i) + 0);
-      index.emplace_back(3*(i) + 1);
-      index.emplace_back(3*(i) + 2);
-    }
-
-    // 円柱の底面を近似するN角形の各面における頂点座標，頂点法線と頂点番号を計算する
-    for (int i = 0; i < N; ++i) {
-      vertex.emplace_back(vertexCoord[           1]);
-      vertex.emplace_back(vertexCoord[(i+1)%N + 10]);
-      vertex.emplace_back(vertexCoord[ i   %N + 10]);
-
-      normal.emplace_back((glm::vec3){0.0f, -1.0f, 0.0f});
-      normal.emplace_back((glm::vec3){0.0f, -1.0f, 0.0f});
-      normal.emplace_back((glm::vec3){0.0f, -1.0f, 0.0f});
-      
-      index.emplace_back(3*(i+N) + 0);
-      index.emplace_back(3*(i+N) + 1);
-      index.emplace_back(3*(i+N) + 2);
-    }
-
-    // 円柱の側面を近似するメッシュの各面における頂点座標と頂点番号を計算する
-    for (int i = 0; i < N; ++i) {
-      int    k  = 2;
-      GLuint k0 = k  +  i;
-      GLuint k1 = k  + (i + 1)%N;
-      GLuint k2 = k0 +  N;
-      GLuint k3 = k1 +  N;
-
-      glm::vec3 v0 = vertexCoord[k0];
-      glm::vec3 v1 = vertexCoord[k1];
-      glm::vec3 v2 = vertexCoord[k2];
-      glm::vec3 v3 = vertexCoord[k3];
-      
-      // 左下の三角形
-      vertex.emplace_back(v0);
-      vertex.emplace_back(v2);
-      vertex.emplace_back(v3);
-
-      normal.emplace_back((glm::vec3){v0.x, 0.0f, v0.z});
-      normal.emplace_back((glm::vec3){v2.x, 0.0f, v2.z});
-      normal.emplace_back((glm::vec3){v3.x, 0.0f, v3.z});
-      
-      index.emplace_back(6*i + 0 + 3*2*N);
-      index.emplace_back(6*i + 1 + 3*2*N);
-      index.emplace_back(6*i + 2 + 3*2*N);
-
-      // 右上の三角形
-      vertex.emplace_back(v0);
-      vertex.emplace_back(v3);
-      vertex.emplace_back(v1);
-
-      normal.emplace_back((glm::vec3){v0.x, 0.0f, v0.z});
-      normal.emplace_back((glm::vec3){v3.x, 0.0f, v3.z});
-      normal.emplace_back((glm::vec3){v1.x, 0.0f, v1.z});
-      
-      index.emplace_back(6*i + 3 + 3*2*N);
-      index.emplace_back(6*i + 4 + 3*2*N);
-      index.emplace_back(6*i + 5 + 3*2*N);      
-    } 
-  }
-};
 
 /*
   ヨーヨーの紐を描画するための関数
  */
-void DrawString (GLfloat* g_aStringColor) {
+void drawString (const GLfloat* g_aStringColor) {
   glPushMatrix();
   
   // ヨーヨーの紐を作成する
   glLineWidth(5.0);           // 紐の太さの設定をする
   glBegin(GL_LINES);
   glColor3fv(g_aStringColor); // 紐の色の設定をする
-  glVertex3d(   0, 0, 0);
-  glVertex3d( x.x, 0, 0);
+  glVertex3f(  0.0f, 0.0f, 0.0f);
+  glVertex3f( pos.x, 0.0f, 0.0f);
   glEnd();
 
   glPopMatrix();
@@ -452,7 +341,7 @@ void DrawString (GLfloat* g_aStringColor) {
 /*
   ヨーヨー本体を描画するための関数
 */
-void DrawYoyo(GLfloat* g_aYoyoColorInner, GLfloat* g_aYoyoColorOuter) {
+void drawYoyo(const GLfloat* g_aYoyoColorInner, const GLfloat* g_aYoyoColorOuter) {
   static Cylinder c0(rInner, 2.0f);
   static Cylinder c1(rOuter, 8.0f);
   static Cylinder c2(rOuter, 8.0f);
@@ -490,12 +379,28 @@ void DrawYoyo(GLfloat* g_aYoyoColorInner, GLfloat* g_aYoyoColorOuter) {
   glDisableClientState(GL_VERTEX_ARRAY);
   glPopMatrix();
 
+  // ヨーヨーの回転運動をわかりやすくする補助線を描画する
   glPushMatrix();
-  glLineWidth(5.0);           // 紐の太さの設定をする
+  glLineWidth(5.0); // 紐の太さの設定をする
   glBegin(GL_LINES);
-  glColor3f(1.0f, 0.0f, 0.0f); // 紐の色の設定をする
-  glVertex3f(       0.0f, 0.0f, 0.0f);
-  glVertex3f(rOuter*2.0f, 0.0f, 0.0f);
+  const float tmp = rOuter*2.0f;
+  if (omega.z > 0) {
+    glColor3f(1.0f, 0.0f, 0.0f); // 紐の色の設定をする
+    glVertex3f(tmp                       , 0.0f, -tmp                       );
+    glVertex3f(tmp                       , 0.0f,  tmp                       );
+    glVertex3f(tmp - 10.0f*sin( M_PI/4.0), 0.0f, -tmp + 10.0f*cos( M_PI/4.0));
+    glVertex3f(tmp                       , 0.0f, -tmp                       );
+    glVertex3f(tmp - 10.0f*sin(-M_PI/4.0), 0.0f, -tmp + 10.0f*cos(-M_PI/4.0));
+    glVertex3f(tmp                       , 0.0f, -tmp                       );
+  } else if (omega.z < 0) {
+    glColor3f(0.0f, 0.0f, 1.0f); // 紐の色の設定をする
+    glVertex3f(tmp                       , 0.0f, -tmp                       );
+    glVertex3f(tmp                       , 0.0f,  tmp                       );
+    glVertex3f(tmp - 10.0f*sin( M_PI/4.0), 0.0f,  tmp - 10.0f*cos( M_PI/4.0));
+    glVertex3f(tmp                       , 0.0f,  tmp                       );
+    glVertex3f(tmp - 10.0f*sin(-M_PI/4.0), 0.0f,  tmp - 10.0f*cos(-M_PI/4.0));
+    glVertex3f(tmp                       , 0.0f,  tmp                       );
+  }
   glEnd();
   glPopMatrix();
   
@@ -503,14 +408,9 @@ void DrawYoyo(GLfloat* g_aYoyoColorInner, GLfloat* g_aYoyoColorOuter) {
 }
 
 /*
-  Matrix in GLM is column major order, so be careful in initializing matrix.
-  glm::mat3 Matrix = {m11, m21, m31, m12, m22, m32, m13, m23, m33};
-  We expect the matrix to form a line like
-  m11 m12 m13
-  m21 m22 m23
-  m31 m32 m33
+  運動をシミュレーションするための関数
  */
-void rk4 (float* t, glm::vec3* x, glm::vec3* v, glm::vec3* theta, glm::vec3* omega) {
+void rk4 (float& t, glm::vec3& pos, glm::vec3& vel, glm::vec3& theta, glm::vec3& omega) {
   /*
     We adopt cgs units system in program
     - Length : cm
@@ -526,14 +426,21 @@ void rk4 (float* t, glm::vec3* x, glm::vec3* v, glm::vec3* theta, glm::vec3* ome
     time step dt as value smaller than 1 for better solution,
     so other parameters need not become smaller to avoid that
     computation result with dt gets closer to order (of magnitude) of error.
-   */
-  //const float dt =  pow(2.0f, -3.0f); // Time step
-  const float  m = 100.0f; // Mass
-  const float  g = 980.0f; // Gravitational acceleration
-  const float  a = rInner; // Radius of inner cylinder
+  */
+  const float m = mYoyo;  // Mass
+  const float g = aGra;   // Gravitational acceleration
+  const float a = rInner; // Radius of inner cylinder
   
   //const glm::mat3 identity = glm::mat3(1.0f);
-  
+
+  /*
+    Matrix in GLM is column major order, so be careful in initializing matrix.
+    glm::mat3 Matrix = {m11, m21, m31, m12, m22, m32, m13, m23, m33};
+    We expect the matrix to form a line like
+    m11 m12 m13
+    m21 m22 m23
+    m31 m32 m33
+  */
   // Tensor of moment of inertia
   const glm::mat3 I = {m*a*a/4.0f, 0.0f, 0.0f,
 		       0.0f, m*a*a/4.0f, 0.0f,
@@ -557,92 +464,70 @@ void rk4 (float* t, glm::vec3* x, glm::vec3* v, glm::vec3* theta, glm::vec3* ome
   // Vector of sum of torque
   const glm::vec3 N = glm::cross(glm::vec3(0.0f), f0) + glm::cross(r1, f1);
 
-  //const float tau = 0.5f * (1.148f * 0.001f) * (M_PI*pow(rOuter, 2.0f) * 2.0f) * 1.2;
-  float tau = 0.0f;
+  const float tau = (g_nYoyoMode == 2) * 0.5f * (1.148f * 0.001f) * (M_PI*pow(rOuter, 2.0f) * 2.0f) * 1.2;
   
   // Runge-Kutta method
-  std::function<glm::vec3(float,glm::vec3,glm::vec3)> func1 = [&f,&m,&tau](float t, glm::vec3 x, glm::vec3 v){ return (f+glm::vec3(-glm::sign(v.x)*tau*v.x*v.x, 0.0f, 0.0f))/m; };
-  std::function<glm::vec3(float,glm::vec3,glm::vec3)> func2 = [          ](float t, glm::vec3 x, glm::vec3 v){ return v; };
-  glm::vec3 v1 = func1( *t         ,  *x            ,  *v            );
-  glm::vec3 x1 = func2( *t         ,  *x            ,  *v            );
-  glm::vec3 v2 = func1((*t)+dt/2.0f, (*x)+x1*dt/2.0f, (*v)+v1*dt/2.0f);
-  glm::vec3 x2 = func2((*t)+dt/2.0f, (*x)+x1*dt/2.0f, (*v)+v1*dt/2.0f);
-  glm::vec3 v3 = func1((*t)+dt/2.0f, (*x)+x2*dt/2.0f, (*v)+v2*dt/2.0f);
-  glm::vec3 x3 = func2((*t)+dt/2.0f, (*x)+x2*dt/2.0f, (*v)+v2*dt/2.0f);
-  glm::vec3 v4 = func1((*t)+dt     , (*x)+x3*dt     , (*v)+v3*dt     );
-  glm::vec3 x4 = func2((*t)+dt     , (*x)+x3*dt     , (*v)+v3*dt     );
-  *v += dt*(v1 + 2.0f*v2 + 2.0f*v3 + v4)/6.0f;
-  *x += dt*(x1 + 2.0f*x2 + 2.0f*x3 + x4)/6.0f;
+  std::function<glm::vec3(float,glm::vec3,glm::vec3)> func1 =
+    [&f,&m,&tau] (float t, glm::vec3 pos, glm::vec3 vel) {
+    return (f + glm::vec3(-glm::sign(vel.x)*tau*vel.x*vel.x, 0.0f, 0.0f))/m; };
+  std::function<glm::vec3(float,glm::vec3,glm::vec3)> func2 =
+    [          ] (float t, glm::vec3 pos, glm::vec3 vel) { return vel; };
+  
+  glm::vec3 vel1 = func1(t          , pos               , vel               );
+  glm::vec3 pos1 = func2(t          , pos               , vel               );
+  glm::vec3 vel2 = func1(t + dt/2.0f, pos + pos1*dt/2.0f, vel + vel1*dt/2.0f);
+  glm::vec3 pos2 = func2(t + dt/2.0f, pos + pos1*dt/2.0f, vel + vel1*dt/2.0f);
+  glm::vec3 vel3 = func1(t + dt/2.0f, pos + pos2*dt/2.0f, vel + vel2*dt/2.0f);
+  glm::vec3 pos3 = func2(t + dt/2.0f, pos + pos2*dt/2.0f, vel + vel2*dt/2.0f);
+  glm::vec3 vel4 = func1(t + dt     , pos + pos3*dt     , vel + vel3*dt     );
+  glm::vec3 pos4 = func2(t + dt     , pos + pos3*dt     , vel + vel3*dt     );
+  vel   += dt*(vel1 + 2.0f*vel2 + 2.0f*vel3 + vel4)/6.0f;
+  pos   += dt*(pos1 + 2.0f*pos2 + 2.0f*pos3 + pos4)/6.0f;
+  pos.y  = isRight ? -rInner : rInner;
   
   std::function<glm::vec3(float,glm::vec3,glm::vec3)> func3 = [&I,&N](float t, glm::vec3 theta, glm::vec3 omega){ return glm::inverse(I)*N; };
   std::function<glm::vec3(float,glm::vec3,glm::vec3)> func4 = [     ](float t, glm::vec3 theta, glm::vec3 omega){ return omega; };
-  glm::vec3 omega1 = func3( *t         ,  *theta                ,  *omega                );
-  glm::vec3 theta1 = func4( *t         ,  *theta                ,  *omega                );
-  glm::vec3 omega2 = func3((*t)+dt/2.0f, (*theta)+theta1*dt/2.0f, (*omega)+omega1*dt/2.0f);
-  glm::vec3 theta2 = func4((*t)+dt/2.0f, (*theta)+theta1*dt/2.0f, (*omega)+omega1*dt/2.0f);
-  glm::vec3 omega3 = func3((*t)+dt/2.0f, (*theta)+theta2*dt/2.0f, (*omega)+omega2*dt/2.0f);
-  glm::vec3 theta3 = func4((*t)+dt/2.0f, (*theta)+theta2*dt/2.0f, (*omega)+omega2*dt/2.0f);
-  glm::vec3 omega4 = func3((*t)+dt     , (*theta)+theta3*dt     , (*omega)+omega3*dt     );
-  glm::vec3 theta4 = func4((*t)+dt     , (*theta)+theta3*dt     , (*omega)+omega3*dt     );
-  *omega += dt*(omega1 + 2.0f*omega2 + 2.0f*omega3 + omega4)/6.0f;
-  *theta += dt*(theta1 + 2.0f*theta2 + 2.0f*theta3 + theta4)/6.0f;
+  glm::vec3 omega1 = func3(t          , theta                 , omega                 );
+  glm::vec3 theta1 = func4(t          , theta                 , omega                 );
+  glm::vec3 omega2 = func3(t + dt/2.0f, theta + theta1*dt/2.0f, omega + omega1*dt/2.0f);
+  glm::vec3 theta2 = func4(t + dt/2.0f, theta + theta1*dt/2.0f, omega + omega1*dt/2.0f);
+  glm::vec3 omega3 = func3(t + dt/2.0f, theta + theta2*dt/2.0f, omega + omega2*dt/2.0f);
+  glm::vec3 theta3 = func4(t + dt/2.0f, theta + theta2*dt/2.0f, omega + omega2*dt/2.0f);
+  glm::vec3 omega4 = func3(t + dt     , theta + theta3*dt     , omega + omega3*dt     );
+  glm::vec3 theta4 = func4(t + dt     , theta + theta3*dt     , omega + omega3*dt     );
+  omega += dt*(omega1 + 2.0f*omega2 + 2.0f*omega3 + omega4)/6.0f;
+  theta += dt*(theta1 + 2.0f*theta2 + 2.0f*theta3 + theta4)/6.0f;
 
-  *t     += dt;  
+  t     += dt;  
   
-  // Kinetic energy
-  const float K1 = 0.5f * m * dot(*v, *v); // Translational motion
-  /*
-    omega - Angular velocity around an axis of rotation
-    L - Angular momentum around the axis of rotation
-    I - Tensor of moment of inertia
-    -> L = I * omega
-
-    <a, b> := dot(a, b)
-    n - Unit vector having same direction of omega
-    |omega| - Magnitude of omega
-    |I| - Moment of inertia around the axis of rotation
-    <n, L> = <n, I|omega|n> = <n, In>|omega| = |I||omega|
-
-    K - Kinetic energy of rotational motion
-    -> K = 0.5*|I|*|omega|^2
-   */
-  const glm::vec3 n = glm::normalize(*omega);
-  const float K2 = 0.5f * glm::dot(n, I*(*omega)) * glm::length(*omega); // Rotational motion
-  
-  // Potential energy
-  const float U = -glm::dot(f0, *x);
-
-  // Mechanical energy
-  const float E = K1 + K2 + U;
-
   // Debug print
-  
-  std::cout << std::noshowpos << std::defaultfloat << *t << std::endl;
+  /*
+  std::cout << std::noshowpos << std::defaultfloat << t << std::endl;
   std::cout << (isDown ? "Down" : "Up") << " " << (isRight ? "Right" : "Left") << std::endl;
   std::cout << glm::to_string(fExt) << std::endl;
-  std::cout << "    x : " << glm::to_string(*x) << " " << 1.0f*g*(*t)*(*t)/3.0f << std::endl;
-  std::cout << "    v : " << glm::to_string(*v) << " " << 2.0f*g*(*t)     /3.0f << std::endl;
-  std::cout << "theta : " << glm::to_string(*theta) << " " << 1.0f*g*(*t)*(*t)/(3.0f*a) << std::endl;
-  std::cout << "omega : " << glm::to_string(*omega) << " " << 2.0f*g*(*t)     /(3.0f*a) << std::endl;
-  std::cout << std::endl;
-  /*
-  std::cout << "Energy" << std::endl;
-  std::cout << std::scientific << std::showpos << std::setprecision(4)
-	    << "K1 : " << K1 << " " <<  2.0f*m*g*g*(*t)*(*t)/9.0f << std::endl;
-  std::cout << "K2 : " << K2 << " " <<  1.0f*m*g*g*(*t)*(*t)/9.0f <<std::endl;
-  std::cout << " U : " << U  << " " << -1.0f*m*g*g*(*t)*(*t)/3.0f <<std::endl;
-  std::cout << " E : " << E  << std::endl;
+  std::cout << "    x : " << glm::to_string(pos) << " " << 1.0f*g*t*t/3.0f << std::endl;
+  std::cout << "    v : " << glm::to_string(vel) << " " << 2.0f*g*t  /3.0f << std::endl;
+  std::cout << "theta : " << glm::to_string(theta) << " " << 1.0f*g*t*t/(3.0f*a) << std::endl;
+  std::cout << "omega : " << glm::to_string(omega) << " " << 2.0f*g*t  /(3.0f*a) << std::endl;
   std::cout << std::endl;
   */
+  
   // Boundary condition
-  if (x->x > L && isDown) {
-    *v      = -(*v);
+  if (pos.x > lStr && isDown) {
+    vel     = -vel;
     isDown  = false;
     isRight = !isRight;
-  } else if (x->x < 0 && !isDown) {
-    *v      = -(*v);
-    isDown  = true;
-  } else if (v->x > 0 && !isDown) {
-    isDown  = true;
+    /*
+    isNadir = true;
+    thetaNadir = isRight ? glm::vec3(0.0f) : glm::vec3({0.0f, 0.0f, M_PI});
+    omegaNadir = *omega;
+    */
+  } else if (pos.x < 0 && !isDown) {
+    vel    = -vel;
+    isDown = true;
+  } else if (vel.x > 0 && !isDown) {
+    isDown = true;
+  } else if (vel.x < 0 && isDown) {
+    isDown = false; 
   }
 }

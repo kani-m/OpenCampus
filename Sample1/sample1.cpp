@@ -28,7 +28,7 @@
   変数(プログラムの設定を保存しておくためのもの)の宣言
 */
 double g_angle      = 0.0;      // 全体の角度
-int    g_nAnim      = GL_TRUE;  // 一時停止しているかどうか
+int    g_nAnim      = GL_FALSE; // 一時停止しているかどうか
 int    g_nFogMode   = 0;        // 霧のモード
 int    g_nBlendMode = 0;        // 物体の透明モード
 int    g_nShadeMode = 0;        // 陰影処理のモード
@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
   // 動作を開始する
   int g_nOldConeMode = g_nConeMode;
   while (shouldClose(window) == GL_FALSE) {
-    if (g_nAnim) {
+    if (!g_nAnim) {
       idle();
     } else {
       // 一時停止中に限り、コーンのメッシュの切り方を変更する
@@ -749,9 +749,9 @@ void InitCone2(void) {
 void DrawCone(void) {  
   glPushMatrix();
 
-  float theta = -90.0;
-  glTranslated(0.0, 0.7, 0.0);
-  glRotated(theta, 0.0, 0.0, 1.0); // コーンを回転させる
+  //float theta = -90.0;
+  //glTranslated(0.0, 0.7, 0.0);
+  //glRotated(theta, 0.0, 0.0, 1.0); // コーンを回転させる
 
   // コーンを描画する  
   glVertexPointer(3, GL_FLOAT, 0, solidConeVertex.data());
@@ -770,15 +770,16 @@ void DrawCone(void) {
   立方体を描画するための関数
 */
 void DrawCube(void) {
+  const GLfloat a = 0.3f;
   static const GLfloat cube[] = {
-    -0.5f, +0.5f, +0.5f,
-    +0.5f, +0.5f, +0.5f,
-    +0.5f, +0.5f, -0.5f,
-    -0.5f, +0.5f, -0.5f,
-    -0.5f, -0.5f, +0.5f,
-    +0.5f, -0.5f, +0.5f,
-    +0.5f, -0.5f, -0.5f,
-    -0.5f, -0.5f, -0.5f,
+    -a, +a, +a,
+    +a, +a, +a,
+    +a, +a, -a,
+    -a, +a, -a,
+    -a, -a, +a,
+    +a, -a, +a,
+    +a, -a, -a,
+    -a, -a, -a,
   };
 
   static const GLuint index[] = {
@@ -803,7 +804,7 @@ void DrawCube(void) {
   };
 
   glPushMatrix();
-  glTranslated(0.0, 0.5, 1.5); // 立方体を移動させる
+  glTranslated(0.0, a, 1.0); // 立方体を移動させる
   // 立方体を描画する
   glVertexPointer(3, GL_FLOAT, 0, cube);
   glEnableClientState(GL_VERTEX_ARRAY);
