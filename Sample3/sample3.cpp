@@ -1,11 +1,12 @@
 /*
-  sample1
-  内容 : CG(コンピュータグラフィックス)の入門プログラム
+  sample3
+  内容 : ヨーヨーのシミュレーションプログラム
   キーボード操作 :
   q - 終了
   a - 一時停止
-  f - 霧のモード切り替え
-  t - 物体の透明モード切り替え
+  c - ヨーヨーの状態の切り替え
+  f - 動きの滑らかさを下げる
+  F - 動きの滑らかさを上げる
 */
 
 /* 
@@ -81,7 +82,7 @@ GLFWwindow* userInit(void) {
   int height = 600;
 
   // ウィンドウを作成する
-  GLFWwindow* window = glfwCreateWindow(width, height, "Swing", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(width, height, "Yoyo", NULL, NULL);
   if (window == NULL) {
     // Cannot create window
     std::cerr << "Can't create GLFW window." << std::endl;
